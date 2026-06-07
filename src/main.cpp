@@ -16,13 +16,11 @@
 
 using namespace std;
 
-int openCam(int fd){
-    fd=open("/dev/video0",O_RDWR);
+int openCam(int& fd){
     if(fd<0){
         cout<<" failed to open device ";
         return 1;
     }
-    return fd;
 }
 
 int machineCheck(int fd){
@@ -75,7 +73,7 @@ int bufferFrame(int fd){
     }
 }
 
-int captureLoop(int fd, int *bufferInfo){
+int captureLoop(int fd, struct v4l2_buffer *bufferInfo){
     if(ioctl(fd, VIDIOC_QBUF, &bufferInfo)<0){
         perror("failed queuing buffer, VIDIOC_QBUF");
         return 1;
@@ -91,16 +89,44 @@ int captureLoop(int fd, int *bufferInfo){
 
     int bufPos = 0;
     int ofMyBlocksize = 0;
+    int bufferLeft = bufferInfo->bytesused;
+
+    char* ofMyBlock = NULL;
+    int i = 0;
+    while(bufferLeft>0){
+        bufPos += ofMyBlocksize;
+
+        ofMyBlocksize = bufferLeft;
+        ofMyBlock = new char [sizeof(char)* ofMyBlocksize];
+    }
+
+    memcpy(ofMyBlock, buffer+bufPos, ofMyBlocksize);
+    outFile.write(ofMyBlock, ofMyBlocksize);
+
+    delete ofMyBlock;
+    outFile.close();
+}
+
+int endStream(int fd){
+    if(ioctl(fd, VIDIOC_STREAMOFF, &type) < 0){
+        perror("Could not end streaming, VIDIOC_STREAMOFF");
+        return 1;
+    }
+    close(fd);
+    return 0;
 }
 
 int main (){
-    int fd;
+    int fd=open("/dev/video0",O_RDWR);
+    struct v4l2_buffer *bufferInfo;
 
-    bufferFrame(fd);
-    bufferPrep(fd);
-    formatSetting(fd);
-    machineCheck(fd);
     openCam(fd);
+    machineCheck(fd);
+    formatSetting(fd);
+    bufferPrep(fd);
+    bufferFrame(fd);
+    captureLoop(fd, bufferInfo);
+    endStream(fd);
 
     return 0;
 }
