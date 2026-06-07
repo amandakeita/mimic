@@ -88,6 +88,9 @@ int captureLoop(int fd, int *bufferInfo){
     //  !
     ofstream outFile;
     outFile.open("webcam_output.jpeg", ios::binary | ios::app);
+
+    int bufPos = 0;
+    int ofMyBlocksize = 0;
 }
 
 int main (){
