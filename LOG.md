@@ -2,3 +2,6 @@ definition: a program which captures frames from the webcam of a linux machine, 
 
 23.05-25.05
     Learned the foundations about device drivers, v4l2, and sequances and functions used for working with pixel streams from camera
+
+25.05 - 11.06
+    I successfully built a library-free camera interface from scratch. Instead of using pre-made tools, I’m talking directly to the Linux kernel to pull raw video frames into my program
