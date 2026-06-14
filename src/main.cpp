@@ -27,12 +27,17 @@ class cameraHandling{
         unsigned char capTable[64];
         int picWidth=0;
         int picHeight=0;
+        int bitsLeft;
+        unsigned int bitCurrent;
+        unsigned char* data;
+        unsigned char* tracer;
 
     public:
         cameraHandling(){
-
             fd = -1;
             type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            bitsLeft =0;
+            bitCurrent =0;
         }
 
 
@@ -130,7 +135,7 @@ class cameraHandling{
 
                 outFile.write(static_cast<char*>(buffer)+bufPos, bufferInfo.bytesused);
 
-                unsigned char* data = (unsigned char*)buffer;
+                data = (unsigned char*)buffer;
                 for (int j =0; j<bufferInfo.bytesused-4;j++){
                     if(data[j]==0xFF && data[j+1]== 0xDB){//multipliers - Quantization Tables - scaling factors to reverse the compression math
                         // cout<<hex<<"j position at: "<<j<<" for "<<(int)data[j]<<" ";
@@ -149,11 +154,16 @@ class cameraHandling{
                         // cout<<"picheight"<<picHeight<<" ";
                     } else if (data[j]==0xFF && data[j+1]== 0xC4){ //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
                         int length = (data[j+2])*256+data[j+3];
-                        cout<<"length "<<length<<" ";
+                        // cout<<"length "<<length<<" ";
                     } else if (data[j]==0xFF && data[j+1]== 0xDA){ //sos marker - start of Scan - tells the program exactly where the "Manual" ends and the "Image Data" begins
                         int sosLength = (data[j+2])*256+data[j+3];
                         int startPos = sosLength +j+2;
-                        cout<<"length: "<<sosLength<<" "<<" image position when starting: "<<startPos;
+                        tracer = &data[startPos];
+                        bitsLeft =0;
+                        for(int test=0;test<8;test++){
+                            readbit();
+                        }
+                        // cout<<"length: "<<sosLength<<" "<<" image position when starting: "<<startPos;
                     }
                 }
 // over all aims to map the memory and give it overseeable structure
@@ -166,6 +176,24 @@ class cameraHandling{
         }
 
         return 0;
+    }
+
+    int readbit(){
+        int res;
+        if(bitsLeft==0){
+            bitCurrent = *tracer;
+            bitsLeft=8;
+            tracer++;
+            if (bitCurrent==0xFF && *tracer== 0x00){
+                tracer ++;
+            } 
+        } if (bitsLeft!=0) {
+            int n = bitsLeft-1;
+            res = (bitCurrent>>n)&1;
+            bitsLeft -= 1;
+        }
+        cout<<"result: "<<res<<endl;
+        return res=0;
     }
 
     int endStream(){
@@ -188,6 +216,7 @@ int main (){
     cam.bufferPrep();
     cam.bufferFrame();
     cam.captureLoop();
+    cam.readbit();
     cam.endStream();
 
     return 0;
