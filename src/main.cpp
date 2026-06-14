@@ -179,7 +179,7 @@ class cameraHandling{
     }
 
     int readbit(){
-        int res;
+        int res=0;
         if(bitsLeft==0){
             bitCurrent = *tracer;
             bitsLeft=8;
@@ -193,7 +193,7 @@ class cameraHandling{
             bitsLeft -= 1;
         }
         cout<<"result: "<<res<<endl;
-        return res=0;
+        return res;
     }
 
     int endStream(){
