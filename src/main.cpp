@@ -31,6 +31,11 @@ class cameraHandling{
         unsigned int bitCurrent;
         unsigned char* data;
         unsigned char* tracer;
+        unsigned char counts [4][16];
+        unsigned char symbols [4][162];
+        unsigned int huffcodes[4][162];
+        unsigned char hufflength[4][162];
+
 
     public:
         cameraHandling(){
@@ -138,23 +143,42 @@ class cameraHandling{
                 data = (unsigned char*)buffer;
                 for (int j =0; j<bufferInfo.bytesused-4;j++){
                     if(data[j]==0xFF && data[j+1]== 0xDB){//multipliers - Quantization Tables - scaling factors to reverse the compression math
-                        // cout<<hex<<"j position at: "<<j<<" for "<<(int)data[j]<<" ";
-                        // cout<<hex<<"j+1 position: "<<(int)data[j+1]<<" ";
-                        // cout<<dec<<"value of two bytes following: "<<(int)data[j+2]+(int)data[j+3]<<" ";
-                        // cout<<dec<<"total  lenght: "<< (data[j+2])*256+data[j+3]<<" ";
-                        // cout<<"luminor table id "<<(int)data[j+4];
                         memcpy(capTable, &data[j+5], 64);
-                        // cout<<"cap table at 0 "<<(int)capTable[0]<<" ";
-                        // cout<<"cap table at 63 "<<(int)capTable[63]<<" ";
-                        // cout<<"data[j + 5 + 63]: "<<(int)data[j + 5 + 63]<<" ";
                     } else if (data[j]==0xFF && data[j+1]== 0xC0){ //dimensions - height and width - to know the size of the 2D pixel grid im about to create
                         picHeight = (data[j+5] * 256) + data[j+6];
                         picWidth = (data[j+7] * 256) + data[j+8];
-                        // cout<<"picwidth"<<picWidth<<" ";
-                        // cout<<"picheight"<<picHeight<<" ";
-                    } else if (data[j]==0xFF && data[j+1]== 0xC4){ //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
+
+
+
+
+
+                    } else if (data[j]==0xFF && data[j+1]== 0xC4){                                      //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
                         int length = (data[j+2])*256+data[j+3];
-                        // cout<<"length "<<length<<" ";
+                        
+                        int tableId = data[j+4];
+
+                        int low = tableId&15;
+                        int high = ( tableId>>4)&1;
+                        // cout<<"low "<<low<<endl;
+                        // cout<<"high "<<high<<endl;
+
+                        int index = (high*2)+low;
+                        memcpy(counts[index], &data[j+5], 16);
+
+                        int sums = 0;
+                        for(int i = 0; i<16;i++){
+                            sums += counts[index][i];
+                        }
+
+                        // cout<<"first count from array counts "<<(int)counts[index][0]<<endl;
+                        cout<<"sums "<<sums<<endl;
+
+                        memcpy(symbols[index], &data[j+21], sums);
+
+                        cout<<"last count from array symbols "<<(int)symbols[index][sums-1]<<endl;
+                    
+
+                    
                     } else if (data[j]==0xFF && data[j+1]== 0xDA){ //sos marker - start of Scan - tells the program exactly where the "Manual" ends and the "Image Data" begins
                         int sosLength = (data[j+2])*256+data[j+3];
                         int startPos = sosLength +j+2;
@@ -163,7 +187,6 @@ class cameraHandling{
                         for(int test=0;test<8;test++){
                             readbit();
                         }
-                        // cout<<"length: "<<sosLength<<" "<<" image position when starting: "<<startPos;
                     }
                 }
 // over all aims to map the memory and give it overseeable structure
@@ -192,8 +215,28 @@ class cameraHandling{
             res = (bitCurrent>>n)&1;
             bitsLeft -= 1;
         }
-        cout<<"result: "<<res<<endl;
+        // cout<<"result: "<<res<<endl;
         return res;
+    }
+
+    void huffmanTables(){
+
+        for(int i=0;i<4;i++){
+            int code = 0;
+            int nextSymbol =0;
+            for(int j=1;j<17;j++){
+                if(counts[i][j]>0){
+                    for(int n=0;n<counts[i][j];n++){
+                        huffcodes[i][nextSymbol] = code;
+                        hufflength[i][nextSymbol] = j;
+                        code++;
+                        cout << "Length: " << j << " | Code (decimal): " << code << " | Symbol: " << (int)symbols[i][nextSymbol] << endl;
+                        nextSymbol++;
+                    }
+                }
+                code = code<<1;
+            }
+        }
     }
 
     int endStream(){
@@ -216,6 +259,7 @@ int main (){
     cam.bufferPrep();
     cam.bufferFrame();
     cam.captureLoop();
+    cam.huffmanTables();
     cam.readbit();
     cam.endStream();
 
