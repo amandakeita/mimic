@@ -229,14 +229,30 @@ class cameraHandling{
                     for(int n=0;n<counts[i][j];n++){
                         huffcodes[i][nextSymbol] = code;
                         hufflength[i][nextSymbol] = j;
-                        code++;
                         cout << "Length: " << j << " | Code (decimal): " << code << " | Symbol: " << (int)symbols[i][nextSymbol] << endl;
+                        code++;
                         nextSymbol++;
                     }
                 }
                 code = code<<1;
             }
         }
+    }
+
+    int patternMatcher(int index){
+        int curCode =0;
+        int bitLength =0;
+        int borrowed = readbit();
+
+        while(true){
+        readbit();
+        curCode = (curCode<<1)+borrowed;
+        bitLength++;
+        }
+
+
+
+        return 0;
     }
 
     int endStream(){
@@ -262,6 +278,7 @@ int main (){
     cam.huffmanTables();
     cam.readbit();
     cam.endStream();
+    cam.patternMatcher();
 
     return 0;
 }
