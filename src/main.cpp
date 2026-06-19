@@ -35,6 +35,13 @@ class cameraHandling{
         unsigned char symbols [4][162];
         unsigned int huffcodes[4][162];
         unsigned char hufflength[4][162];
+        unsigned char huffSizes[4];
+        const int mape [64] = {0,  1,  8, 16,  9,  2,  3, 10, 17, 24, 32, 25, 18, 11,  4,  5,
+                              12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13,  6,  7, 14, 21, 28,
+                              35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+                              58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+        int blockCoef [64];
+        int precDC = 0;
 
 
     public:
@@ -170,12 +177,14 @@ class cameraHandling{
                             sums += counts[index][i];
                         }
 
+                        huffSizes[index] = sums;
+
                         // cout<<"first count from array counts "<<(int)counts[index][0]<<endl;
-                        cout<<"sums "<<sums<<endl;
+                        // cout<<"sums "<<sums<<endl;
 
                         memcpy(symbols[index], &data[j+21], sums);
 
-                        cout<<"last count from array symbols "<<(int)symbols[index][sums-1]<<endl;
+                        // cout<<"last count from array symbols "<<(int)symbols[index][sums-1]<<endl;
                     
 
                     
@@ -229,7 +238,7 @@ class cameraHandling{
                     for(int n=0;n<counts[i][j];n++){
                         huffcodes[i][nextSymbol] = code;
                         hufflength[i][nextSymbol] = j;
-                        cout << "Length: " << j << " | Code (decimal): " << code << " | Symbol: " << (int)symbols[i][nextSymbol] << endl;
+                        // cout << "Length: " << j << " | Code (decimal): " << code << " | Symbol: " << (int)symbols[i][nextSymbol] << endl;
                         code++;
                         nextSymbol++;
                     }
@@ -242,17 +251,46 @@ class cameraHandling{
     int patternMatcher(int index){
         int curCode =0;
         int bitLength =0;
-        int borrowed = readbit();
+        int category =0;
 
-        while(true){
-        readbit();
-        curCode = (curCode<<1)+borrowed;
-        bitLength++;
+        for (int i = 0;i<16;i++){
+            int borrowed = readbit();
+            curCode = (curCode<<1)+borrowed;
+            bitLength++;
+                for(int j =0;j<huffSizes[index];j++){
+                    if (curCode == huffcodes[index][j] && bitLength == hufflength[index][j]){
+                        cout<<"match: "<<(int)symbols[index][j];
+                        category = (int)symbols[index][j];
+                        return symbols[index][j];
+                    }
+                }
+            
+        }
+        cout<<"no match found";
+        return -1;
+    }
+
+    int valueDecoder(int category){
+        if(category ==0) return 0;
+        int builder =0;
+        int number =0;
+        for(int i =0; i<category;i++){
+            builder = readbit();
+            number = (number<<1)+builder;
         }
 
+        int firstBit = number>>(category-1);
+        if(firstBit==1){
+            return number;
+        } else if(firstBit==0){
+            number = number -((1<<category)-1);
+            return number;
+        }
+    }
+    
+    int decoder(){
+        memset(blockCoef, 0, sizeof(blockCoef));
 
-
-        return 0;
     }
 
     int endStream(){
@@ -276,9 +314,9 @@ int main (){
     cam.bufferFrame();
     cam.captureLoop();
     cam.huffmanTables();
-    cam.readbit();
+    cam.patternMatcher(0);
     cam.endStream();
-    cam.patternMatcher();
+
 
     return 0;
 }
