@@ -14,6 +14,9 @@
 #include <fstream>
 #include <string>
 #include <cstring> 
+#include <cmath>
+#include <vector>
+#define _USE_MATH_DEFINES
 
 using namespace std;
 
@@ -24,7 +27,7 @@ class cameraHandling{
         void* buffer;
         struct v4l2_buffer bufferInfo;
         int type;
-        unsigned char capTable[64];
+        unsigned char capTable[2][64];
         int picWidth=0;
         int picHeight=0;
         int bitsLeft;
@@ -41,8 +44,12 @@ class cameraHandling{
                               35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
                               58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
         int blockCoef [64];
-        int precDC = 0;
-
+        int precDC[3 ];
+        double pixelRes[64];
+        bool running = true;
+        vector<unsigned char> frameBuffer;
+        int y_h;
+        int y_v; 
 
     public:
         cameraHandling(){
@@ -50,6 +57,9 @@ class cameraHandling{
             type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             bitsLeft =0;
             bitCurrent =0;
+            frameBuffer.resize(921600);
+            y_h =1;
+            y_v =1;
         }
 
 
@@ -150,39 +160,56 @@ class cameraHandling{
                 data = (unsigned char*)buffer;
                 for (int j =0; j<bufferInfo.bytesused-4;j++){
                     if(data[j]==0xFF && data[j+1]== 0xDB){//multipliers - Quantization Tables - scaling factors to reverse the compression math
-                        memcpy(capTable, &data[j+5], 64);
+                        int length = (data[j+2])*256+data[j+3];
+                        int bypro= 0;
+                        int id;
+                        while(bypro<length-2){
+                            id = data[j+4+bypro];
+                            for(int k =0;k<64;k++){
+                                capTable[id][mape[k]] = data[j + 4 + bypro + 1 + k];
+                            }
+                            bypro +=65;
+                        }
+                        
                     } else if (data[j]==0xFF && data[j+1]== 0xC0){ //dimensions - height and width - to know the size of the 2D pixel grid im about to create
                         picHeight = (data[j+5] * 256) + data[j+6];
                         picWidth = (data[j+7] * 256) + data[j+8];
+                        int datafi = data[j+11];
+                        unsigned char h = datafi>>4;
+                        unsigned char l = datafi&15;
+                        y_h=h;
+                        y_v=l;
 
 
-
-
-
-                    } else if (data[j]==0xFF && data[j+1]== 0xC4){                                      //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
+                    } else if (data[j]==0xFF && data[j+1]== 0xC4){ //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
                         int length = (data[j+2])*256+data[j+3];
                         
-                        int tableId = data[j+4];
 
-                        int low = tableId&15;
-                        int high = ( tableId>>4)&1;
-                        // cout<<"low "<<low<<endl;
-                        // cout<<"high "<<high<<endl;
+                        int bypro= 0;
+                        while(bypro<length-2){
+                            int tableId = data[j+4+bypro];
+                            int low = tableId&15;
+                            int high = ( tableId>>4)&1;
+                            int* p;
+                            int index = (high*2)+low;
 
-                        int index = (high*2)+low;
-                        memcpy(counts[index], &data[j+5], 16);
+                            memcpy(counts[index], &data[j + 4 + bypro + 1], 16);
+                            int sums = 0;
+                            for(int i = 0; i<16;i++){
+                                sums += counts[index][i];
+                            }
 
-                        int sums = 0;
-                        for(int i = 0; i<16;i++){
-                            sums += counts[index][i];
+                            huffSizes[index] = sums;
+
+                            // cout<<"first count from array counts "<<(int)counts[index][0]<<endl;
+                            // cout<<"sums "<<sums<<endl;
+
+                            memcpy(symbols[index], &data[j + 4 + bypro + 1 + 16], sums);
+                            bypro += 1 + 16 + sums;
                         }
+                        
 
-                        huffSizes[index] = sums;
 
-                        // cout<<"first count from array counts "<<(int)counts[index][0]<<endl;
-                        // cout<<"sums "<<sums<<endl;
-
-                        memcpy(symbols[index], &data[j+21], sums);
 
                         // cout<<"last count from array symbols "<<(int)symbols[index][sums-1]<<endl;
                     
@@ -193,9 +220,17 @@ class cameraHandling{
                         int startPos = sosLength +j+2;
                         tracer = &data[startPos];
                         bitsLeft =0;
-                        for(int test=0;test<8;test++){
-                            readbit();
-                        }
+
+                        precDC[0] =0;
+                        precDC[1] =0;
+                        precDC[2] =0;
+                        bitsLeft = 0;
+                        bitCurrent = 0;
+                        huffmanTables();
+                        masterDecoder();
+                        break;
+                        // cout << "Starting decoding at byte: " << startPos << endl;
+                        // cout << "Luma DC Table Size: " << (int)huffSizes[0] << endl;
                     }
                 }
 // over all aims to map the memory and give it overseeable structure
@@ -211,18 +246,39 @@ class cameraHandling{
     }
 
     int readbit(){
+        if(!running) return 0;
         int res=0;
         if(bitsLeft==0){
-            bitCurrent = *tracer;
-            bitsLeft=8;
-            tracer++;
-            if (bitCurrent==0xFF && *tracer== 0x00){
-                tracer ++;
-            } 
+            while(true){
+                bitCurrent = *tracer;
+                tracer++;
+                if(bitCurrent != 0xFF){
+                    break;
+                } else {
+                    if(*tracer==0x00){
+                        tracer++;
+                        break;
+                    } if(*tracer>=0xD0 && *tracer<=0xD7){
+                        tracer ++;
+                        precDC[0] = 0; 
+                        precDC[1] = 0; 
+                        precDC[2] = 0;
+                        continue;
+                    }if(*tracer==0xD9){
+                        running = false;
+                        return 0;
+                    }
+                }
+            }
+            if (running) bitsLeft =8;
+            if(!running){
+                return 0;
+            }
         } if (bitsLeft!=0) {
             int n = bitsLeft-1;
             res = (bitCurrent>>n)&1;
             bitsLeft -= 1;
+            
         }
         // cout<<"result: "<<res<<endl;
         return res;
@@ -233,11 +289,11 @@ class cameraHandling{
         for(int i=0;i<4;i++){
             int code = 0;
             int nextSymbol =0;
-            for(int j=1;j<17;j++){
+            for(int j=0;j<16;j++){
                 if(counts[i][j]>0){
                     for(int n=0;n<counts[i][j];n++){
                         huffcodes[i][nextSymbol] = code;
-                        hufflength[i][nextSymbol] = j;
+                        hufflength[i][nextSymbol] = j+1;
                         // cout << "Length: " << j << " | Code (decimal): " << code << " | Symbol: " << (int)symbols[i][nextSymbol] << endl;
                         code++;
                         nextSymbol++;
@@ -259,8 +315,11 @@ class cameraHandling{
             bitLength++;
                 for(int j =0;j<huffSizes[index];j++){
                     if (curCode == huffcodes[index][j] && bitLength == hufflength[index][j]){
-                        cout<<"match: "<<(int)symbols[index][j];
+                        // cout<<"match: "<<(int)symbols[index][j];
                         category = (int)symbols[index][j];
+                        if(!running){
+                            return 0;
+                        }
                         return symbols[index][j];
                     }
                 }
@@ -288,9 +347,112 @@ class cameraHandling{
         }
     }
     
-    int decoder(){
+    int decoder(int dcTable, int acTable, int compID){
         memset(blockCoef, 0, sizeof(blockCoef));
+        int res = patternMatcher(dcTable);
+        int res2 = valueDecoder(res);
+        unsigned char ore=0;
+        unsigned char high =0;
+        unsigned char low =0;
+        int res3 = 0;
+        int qIndex;
 
+
+        precDC[compID] += res2;
+        blockCoef[0] = precDC[compID];
+
+        if(compID ==0) qIndex =0;
+        else qIndex =1;
+
+        for(int i=1; i<64;i++){
+            ore = patternMatcher(acTable);
+            if(ore ==0){
+                break;
+            } else if(ore==240){
+                i += 15;
+            } else{
+                high = ore>>4;
+                low = ore&15;
+                i += high;
+                if(i>63) break;
+                res3 = valueDecoder(low);
+                blockCoef[mape[i]]=res3;
+            }
+        }
+
+        double spatialGrid[64];
+        for(int j = 0;j<64;j++){
+            spatialGrid[j] = blockCoef[j]*capTable[qIndex][j];
+        }
+
+        double cu=0.0;
+        double cv=0.0;
+        double cosValn =0, cosValk =0;
+        for(int n=0;n<8;n++){
+            for(int k=0;k<8;k++){
+                    double sum =0.0;
+                    for(int u=0;u<8;u++){
+                        if(u==0) cu=1/sqrt(2);
+                        if(u>0) cu=1.0;
+                        cosValn = cos( ( (2 * n + 1) * u * M_PI ) / 16.0 );
+                        for(int v=0;v<8;v++){
+                            if(v==0) cv=1/sqrt(2);
+                            if(v>0) cv=1.0;
+                            cosValk = cos( ( (2 * k + 1) * v * M_PI ) / 16.0 );
+                            sum += cu*cv*cosValk*cosValn*spatialGrid[u * 8 + v];
+                    }
+                }
+                double temp = (sum/4.0)+128.5;
+
+                if(temp>255.00) temp = 255;
+                if(temp<0.0) temp = 0;
+                pixelRes[n * 8 + k] = (unsigned char)temp;
+
+            }
+
+        }
+
+        for(int r = 0;r<8;r++){
+            for(int c=0;c<8;c++){
+                // cout<<(int)pixelRes[r * 8 + c]<<endl;
+            }
+        }
+
+        return 0;
+    }
+
+    int masterDecoder(){
+        precDC[0] = 0; 
+        precDC[1] = 0; 
+        precDC[2] = 0;
+        int mcuW = y_h*8;
+        int mcuH = y_v*8;
+        int globalX=0, globalY =0, finalLoc =0;
+        for(int i = 0;i<picHeight/mcuH;i++){
+            for(int j = 0;j<picWidth/mcuW;j++){
+
+                for(int ij=0;ij<y_v;ij++){ 
+                for(int ii=0;ii<y_h;ii++){ 
+                    decoder(0,2,0); 
+                    for(int u=0;u<8;u++){
+                        for(int v = 0;v<8;v++){
+                                    int gx = (j * mcuW) + (ii*8) +v;
+                                    int gy = (i * mcuH) + (ij*8) + u;
+                                    int finalIndex = (gy * picWidth) + gx;
+                                    frameBuffer[finalIndex] = pixelRes[u * 8 + v];
+                                }
+                            }
+                        }
+                    }
+                decoder(1,3,1);
+                decoder(1,3,2);  
+            }
+        }
+        ofstream testFile("out.pgm", ios::binary);
+        testFile<<"P5\n" << picWidth << " " << picHeight << "\n255\n";
+        testFile.write((char*)frameBuffer.data(), frameBuffer.size());
+        testFile.close();
+        return 0;
     }
 
     int endStream(){
@@ -313,8 +475,6 @@ int main (){
     cam.bufferPrep();
     cam.bufferFrame();
     cam.captureLoop();
-    cam.huffmanTables();
-    cam.patternMatcher(0);
     cam.endStream();
 
 
