@@ -142,111 +142,122 @@ class cameraHandling{
         return 0;
     }
 
-    int captureLoop(){
-
+    int warmUp(){
         for (int i=0;i<10;i++){
             if(ioctl(fd, VIDIOC_DQBUF, &bufferInfo)<0){
-            perror("failed dequeuing buffer, VIDIOC_DQBUF");
-            return 1;
+                perror("failed dequeuing buffer, VIDIOC_DQBUF");
+                return 1;
             }
-            if (i==9){
-                ofstream outFile;
-                outFile.open("webcam_output.jpeg", ios::binary | ios::trunc);
 
-                int bufPos = 0;
-                int bufferLeft = bufferInfo.bytesused;
-
-                outFile.write(static_cast<char*>(buffer)+bufPos, bufferInfo.bytesused);
-
-                data = (unsigned char*)buffer;
-                for (int j =0; j<bufferInfo.bytesused-4;j++){
-                    if(data[j]==0xFF && data[j+1]== 0xDB){//multipliers - Quantization Tables - scaling factors to reverse the compression math
-                        int length = (data[j+2])*256+data[j+3];
-                        int bypro= 0;
-                        int id;
-                        while(bypro<length-2){
-                            id = data[j+4+bypro];
-                            for(int k =0;k<64;k++){
-                                capTable[id][mape[k]] = data[j + 4 + bypro + 1 + k];
-                            }
-                            bypro +=65;
-                        }
-                        
-                    } else if (data[j]==0xFF && data[j+1]== 0xC0){ //dimensions - height and width - to know the size of the 2D pixel grid im about to create
-                        picHeight = (data[j+5] * 256) + data[j+6];
-                        picWidth = (data[j+7] * 256) + data[j+8];
-                        int datafi = data[j+11];
-                        unsigned char h = datafi>>4;
-                        unsigned char l = datafi&15;
-                        y_h=h;
-                        y_v=l;
-
-
-                    } else if (data[j]==0xFF && data[j+1]== 0xC4){ //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
-                        int length = (data[j+2])*256+data[j+3];
-                        
-
-                        int bypro= 0;
-                        while(bypro<length-2){
-                            int tableId = data[j+4+bypro];
-                            int low = tableId&15;
-                            int high = ( tableId>>4)&1;
-                            int* p;
-                            int index = (high*2)+low;
-
-                            memcpy(counts[index], &data[j + 4 + bypro + 1], 16);
-                            int sums = 0;
-                            for(int i = 0; i<16;i++){
-                                sums += counts[index][i];
-                            }
-
-                            huffSizes[index] = sums;
-
-                            // cout<<"first count from array counts "<<(int)counts[index][0]<<endl;
-                            // cout<<"sums "<<sums<<endl;
-
-                            memcpy(symbols[index], &data[j + 4 + bypro + 1 + 16], sums);
-                            bypro += 1 + 16 + sums;
-                        }
-                        
-
-
-
-                        // cout<<"last count from array symbols "<<(int)symbols[index][sums-1]<<endl;
-                    
-
-                    
-                    } else if (data[j]==0xFF && data[j+1]== 0xDA){ //sos marker - start of Scan - tells the program exactly where the "Manual" ends and the "Image Data" begins
-                        int sosLength = (data[j+2])*256+data[j+3];
-                        int startPos = sosLength +j+2;
-                        tracer = &data[startPos];
-                        bitsLeft =0;
-
-                        precDC[0] =0;
-                        precDC[1] =0;
-                        precDC[2] =0;
-                        bitsLeft = 0;
-                        bitCurrent = 0;
-                        huffmanTables();
-                        masterDecoder();
-                        break;
-                        // cout << "Starting decoding at byte: " << startPos << endl;
-                        // cout << "Luma DC Table Size: " << (int)huffSizes[0] << endl;
-                    } 
-
-                    else if (data[j]==0xFF && data[j+1]== 0xDD){
-                        reIn = (data[j+4]*256) + data[j+5];
-                    }
-
-                }
-// over all aims to map the memory and give it overseeable structure
-                outFile.close();
-            }
             if(ioctl(fd, VIDIOC_QBUF, &bufferInfo)<0){
-            perror("failed queuing buffer, VIDIOC_QBUF");
-            return 1;
+                perror("failed queuing buffer, VIDIOC_QBUF");
+                return 1;
             }
         }
+        return 0;
+    }
+
+    int captureLoop(){
+        // ofstream outFile;
+        // outFile.open("webcam_output.jpeg", ios::binary | ios::trunc);
+
+        if(ioctl(fd, VIDIOC_DQBUF, &bufferInfo)<0){
+                perror("failed dequeuing buffer, VIDIOC_DQBUF");
+                return 1;
+        }
+        int bufPos = 0;
+        int bufferLeft = bufferInfo.bytesused;
+
+        // outFile.write(static_cast<char*>(buffer)+bufPos, bufferInfo.bytesused);
+
+        data = (unsigned char*)buffer;
+        for (int j =0; j<bufferInfo.bytesused-4;j++){
+            if(data[j]==0xFF && data[j+1]== 0xDB){//multipliers - Quantization Tables - scaling factors to reverse the compression math
+                int length = (data[j+2])*256+data[j+3];
+                int bypro= 0;
+                int id;
+                while(bypro<length-2){
+                    id = data[j+4+bypro];
+                    for(int k =0;k<64;k++){
+                        capTable[id][mape[k]] = data[j + 4 + bypro + 1 + k];
+                    }
+                    bypro +=65;
+                }
+                
+            } else if (data[j]==0xFF && data[j+1]== 0xC0){ //dimensions - height and width - to know the size of the 2D pixel grid im about to create
+                picHeight = (data[j+5] * 256) + data[j+6];
+                picWidth = (data[j+7] * 256) + data[j+8];
+                int datafi = data[j+11];
+                unsigned char h = datafi>>4;
+                unsigned char l = datafi&15;
+                y_h=h;
+                y_v=l;
+
+
+            } else if (data[j]==0xFF && data[j+1]== 0xC4){ //huffman - dictionaries - to be able to read the "shorthand" bits in the image data
+                int length = (data[j+2])*256+data[j+3];
+                
+
+                int bypro= 0;
+                while(bypro<length-2){
+                    int tableId = data[j+4+bypro];
+                    int low = tableId&15;
+                    int high = ( tableId>>4)&1;
+                    int* p;
+                    int index = (high*2)+low;
+
+                    memcpy(counts[index], &data[j + 4 + bypro + 1], 16);
+                    int sums = 0;
+                    for(int i = 0; i<16;i++){
+                        sums += counts[index][i];
+                    }
+
+                    huffSizes[index] = sums;
+
+                    // cout<<"first count from array counts "<<(int)counts[index][0]<<endl;
+                    // cout<<"sums "<<sums<<endl;
+
+                    memcpy(symbols[index], &data[j + 4 + bypro + 1 + 16], sums);
+                    bypro += 1 + 16 + sums;
+                }
+                
+
+
+
+                // cout<<"last count from array symbols "<<(int)symbols[index][sums-1]<<endl;
+            
+
+            
+            } else if (data[j]==0xFF && data[j+1]== 0xDA){ //sos marker - start of Scan - tells the program exactly where the "Manual" ends and the "Image Data" begins
+                int sosLength = (data[j+2])*256+data[j+3];
+                int startPos = sosLength +j+2;
+                tracer = &data[startPos];
+                bitsLeft =0;
+
+                precDC[0] =0;
+                precDC[1] =0;
+                precDC[2] =0;
+                bitsLeft = 0;
+                bitCurrent = 0;
+                resetter();
+                huffmanTables();
+                masterDecoder();
+                break;
+                // cout << "Starting decoding at byte: " << startPos << endl;
+                // cout << "Luma DC Table Size: " << (int)huffSizes[0] << endl;
+            } 
+
+            else if (data[j]==0xFF && data[j+1]== 0xDD){
+                reIn = (data[j+4]*256) + data[j+5];
+            }
+
+        }
+        if(ioctl(fd, VIDIOC_QBUF, &bufferInfo)<0){
+            perror("failed queuing buffer, VIDIOC_QBUF");
+            return 1;
+        }
+// over all aims to map the memory and give it overseeable structure
+                // outFile.close();
 
         return 0;
     }
@@ -485,10 +496,20 @@ class cameraHandling{
                 }  
             }
         }
-        ofstream testFile("out.pgm", ios::binary);
-        testFile<<"P5\n" << picWidth << " " << picHeight << "\n255\n";
-        testFile.write((char*)frameBuffer.data(), frameBuffer.size());
-        testFile.close();
+        cout << "Frame Decoded Successfully at index: " << (void*)tracer << endl;
+        // ofstream testFile("out.pgm", ios::binary);
+        // testFile<<"P5\n" << picWidth << " " << picHeight << "\n255\n";
+        // testFile.write((char*)frameBuffer.data(), frameBuffer.size());
+        // testFile.close();
+        return 0;
+    }
+
+    int resetter(){
+        bitsLeft =0;
+        bitCurrent =0;
+        precDC[0] =0;
+        precDC[1] =0;
+        precDC[2] =0;
         return 0;
     }
 
@@ -504,6 +525,8 @@ class cameraHandling{
 
 int main (){
 
+    bool running = true;
+
     cameraHandling cam;
 
     cam.openCam();
@@ -511,7 +534,10 @@ int main (){
     cam.formatSetting();
     cam.bufferPrep();
     cam.bufferFrame();
-    cam.captureLoop();
+    cam.warmUp();
+    while(running){
+        cam.captureLoop();
+    }
     cam.endStream();
 
 
