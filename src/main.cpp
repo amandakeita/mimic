@@ -16,6 +16,7 @@
 #include <cstring> 
 #include <cmath>
 #include <vector>
+#include <SDL2/SDL.h>
 #define _USE_MATH_DEFINES
 
 using namespace std;
@@ -51,6 +52,15 @@ class cameraHandling{
         int y_h;
         int y_v; 
         int reIn = 0;
+        SDL_Window* window;
+        SDL_Renderer* renderer;
+        SDL_Texture* texture;
+
+        struct point{ //so location will be treated as a single object not seperate numbers
+            int x;
+            int y;
+        };
+        point landmarks[5];
 
     public:
         cameraHandling(){
@@ -61,6 +71,12 @@ class cameraHandling{
             frameBuffer.resize(921600);
             y_h =1;
             y_v =1;
+            if(SDL_Init(SDL_INIT_VIDEO)<0){
+                cout << "SDL could not initialize! SDL_Error: " << SDL_GetError() << endl;
+            }
+            window = SDL_CreateWindow("Mimic", 100, 100, 2560, 720, SDL_WINDOW_SHOWN);
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
         }
 
 
@@ -377,6 +393,7 @@ class cameraHandling{
             number = number -((1<<category)-1);
             return number;
         }
+        return 0;
     }
     
     int decoder(int dcTable, int acTable, int compID){
@@ -457,6 +474,97 @@ class cameraHandling{
         return 0;
     }
 
+    int extractor(){
+        int right =840;
+        int left =440;
+        int top =160;
+        int bottom =560;
+        int darkestAtmleft = 255;
+        int darkestAtmright = 255;
+        int offset =0;
+        int fini =0;
+        int curBrightness =0;
+        int midx = 640;
+        int midy = 360;
+        int darkestMouthleft = 255;
+        int darkestMouthright = 255;
+        int noseDrake = 255;
+
+        for(int y = top; y<bottom;y++){
+            offset= y * picWidth;
+            if (y<=midy){
+                    for(int x = left; x<midx; x++){
+                        fini = x+offset;
+                        curBrightness=frameBuffer[fini];
+                        if(curBrightness<darkestAtmleft){
+                            darkestAtmleft=curBrightness;
+                            landmarks[1].x = x;
+                            landmarks[1].y =y;//left eye
+                        }
+                    }
+                    for(int x = midx; x<right; x++){
+                        fini = x+offset;
+                        curBrightness=frameBuffer[fini];
+                        if(curBrightness<darkestAtmright){
+                            darkestAtmright=curBrightness;
+                            landmarks[0].x = x;
+                            landmarks[0].y =y;//right eye
+                        }
+                    }
+                } 
+            if (y>=midy){
+                for(int x = left; x<midx; x++){
+                    fini = x+offset;
+                    curBrightness=frameBuffer[fini];
+                    if(curBrightness<darkestMouthleft){
+                        darkestMouthleft=curBrightness;
+                        landmarks[3].x = x; //mouth left
+                        landmarks[3].y =y;
+                    }
+                }
+                for(int x = midx; x<right; x++){
+                    fini = x+offset;
+                    curBrightness=frameBuffer[fini];
+                    if(curBrightness<darkestMouthright){
+                        darkestMouthright=curBrightness;
+                        landmarks[2].x = x; //mouth right
+                        landmarks[2].y =y;
+                    }
+                }
+            }
+        }
+        for(int y = midy - 20;y<midy+20;y++){
+            offset= y * picWidth;
+            for(int x = midx-20;x<midx+20;x++){
+                fini = x+offset;
+                curBrightness=frameBuffer[fini];
+                if(curBrightness<noseDrake){
+                    noseDrake=curBrightness;
+                    landmarks[4].x = x; //nose
+                    landmarks[4].y =y;
+                }
+            }
+        }
+
+        cout << "right Eye: " << landmarks[0].x << " left Eye: " << landmarks[1].x << " right mouth corner: " << landmarks[2].x << " left mouth corner: " << landmarks[3].x << " nose: " << landmarks[4].x <<endl;        
+        return 0;
+    }
+
+    int emotionDetector(){
+        double edx = landmarks[1].x-landmarks[0].x;
+        double edy = landmarks[1].y-landmarks[0].y;
+        double ed = (edx*edx)+(edy*edy);
+        double eyeDistance = sqrt(ed);
+
+        double mwx = landmarks[3].x-landmarks[2].x;
+        double mwy = landmarks[3].y-landmarks[2].y;
+        double mw = (mwx*mwx)+(mwy*mwy);
+        double mouthWidth = sqrt(mw);
+        double smileScore = mouthWidth/eyeDistance;
+        cout<< " SMILE SCORE "<<smileScore<<endl;
+        return 0;
+    }
+
     int masterDecoder(){
         precDC[0] = 0; 
         precDC[1] = 0; 
@@ -465,6 +573,8 @@ class cameraHandling{
         int mcuH = y_v*8;
         int counter =0;
         int globalX=0, globalY =0, finalLoc =0;
+
+
         for(int i = 0;i<picHeight/mcuH;i++){
             for(int j = 0;j<picWidth/mcuW;j++){
                 for(int ij=0;ij<y_v;ij++){ 
@@ -537,6 +647,8 @@ int main (){
     cam.warmUp();
     while(running){
         cam.captureLoop();
+        cam.extractor();
+        cam.emotionDetector();
     }
     cam.endStream();
 
