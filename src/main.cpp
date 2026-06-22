@@ -50,6 +50,7 @@ class cameraHandling{
         vector<unsigned char> frameBuffer;
         int y_h;
         int y_v; 
+        int reIn = 0;
 
     public:
         cameraHandling(){
@@ -231,7 +232,12 @@ class cameraHandling{
                         break;
                         // cout << "Starting decoding at byte: " << startPos << endl;
                         // cout << "Luma DC Table Size: " << (int)huffSizes[0] << endl;
+                    } 
+
+                    else if (data[j]==0xFF && data[j+1]== 0xDD){
+                        reIn = (data[j+4]*256) + data[j+5];
                     }
+
                 }
 // over all aims to map the memory and give it overseeable structure
                 outFile.close();
@@ -251,6 +257,12 @@ class cameraHandling{
         if(bitsLeft==0){
             while(true){
                 bitCurrent = *tracer;
+
+                static bool firstByte = true;
+                if(firstByte){
+                    firstByte = false;
+                }
+
                 tracer++;
                 if(bitCurrent != 0xFF){
                     break;
@@ -313,6 +325,7 @@ class cameraHandling{
             int borrowed = readbit();
             curCode = (curCode<<1)+borrowed;
             bitLength++;
+
                 for(int j =0;j<huffSizes[index];j++){
                     if (curCode == huffcodes[index][j] && bitLength == hufflength[index][j]){
                         // cout<<"match: "<<(int)symbols[index][j];
@@ -320,13 +333,21 @@ class cameraHandling{
                         if(!running){
                             return 0;
                         }
+
+                      
                         return symbols[index][j];
+
+
                     }
                 }
             
         }
-        cout<<"no match found";
-        return -1;
+        running = false;
+        cout << "no match found, table index = " << index << endl;
+        for(int j =0;j<huffSizes[index];j++){
+            cout<<"culprits; "<<(int)symbols[index][j]<<endl;
+        }
+        return 0;
     }
 
     int valueDecoder(int category){
@@ -349,6 +370,10 @@ class cameraHandling{
     
     int decoder(int dcTable, int acTable, int compID){
         memset(blockCoef, 0, sizeof(blockCoef));
+
+        static int blockCount = 0;
+        blockCount++;
+
         int res = patternMatcher(dcTable);
         int res2 = valueDecoder(res);
         unsigned char ore=0;
@@ -427,13 +452,17 @@ class cameraHandling{
         precDC[2] = 0;
         int mcuW = y_h*8;
         int mcuH = y_v*8;
+        int counter =0;
         int globalX=0, globalY =0, finalLoc =0;
         for(int i = 0;i<picHeight/mcuH;i++){
             for(int j = 0;j<picWidth/mcuW;j++){
-
                 for(int ij=0;ij<y_v;ij++){ 
                 for(int ii=0;ii<y_h;ii++){ 
                     decoder(0,2,0); 
+                    if(!running){
+                        break;
+                        return 0;
+                    } 
                     for(int u=0;u<8;u++){
                         for(int v = 0;v<8;v++){
                                     int gx = (j * mcuW) + (ii*8) +v;
@@ -445,7 +474,15 @@ class cameraHandling{
                         }
                     }
                 decoder(1,3,1);
-                decoder(1,3,2);  
+                decoder(1,3,2);
+                if(!running){
+                    break;
+                    return 0;
+                }
+                counter++;
+                if(reIn > 0 && counter % reIn == 0){
+                    bitsLeft = 0;
+                }  
             }
         }
         ofstream testFile("out.pgm", ios::binary);
