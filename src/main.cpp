@@ -54,9 +54,19 @@ class cameraHandling{
         int reIn = 0;
         SDL_Window* window;
         SDL_Renderer* renderer;
+        SDL_Surface* surface;
         SDL_Texture* texture;
+        SDL_Texture* happy;
         bool done = false;
         double cosTable[8][8];
+        int right =840;
+        int left =440;
+        int top =160;
+        int bottom =560;
+        double baseline =0;
+        int framecount =0;
+        double avg =0;
+        int emotionID =0;
 
         struct point{ //so location will be treated as a single object not seperate numbers
             int x;
@@ -79,13 +89,26 @@ class cameraHandling{
             if(SDL_Init(SDL_INIT_VIDEO)<0){
                 cout << "SDL could not initialize! SDL_Error: " << SDL_GetError() << endl;
             }
-            window = SDL_CreateWindow("Mimic", 100, 100, 2560, 720, SDL_WINDOW_SHOWN);
+            window = SDL_CreateWindow("Mimic", 100, 100, 2134, 600, SDL_WINDOW_SHOWN);
             renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
             texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
+            surface = SDL_LoadBMP("proud.bmp");
+            if(surface!=0){
+                happy = SDL_CreateTextureFromSurface(renderer, surface);
+                SDL_FreeSurface(surface);
+                cout << "Success: Asset Loaded!" << endl;
+
+            } else if (surface ==0) {
+                cout << "FAILURE" << endl;
+            }
             for(int i =0;i<8;i++){
                 for(int j =0; j<8;j++){
                     cosTable[i][j] = cos(((2*i+1)*j*M_PI)/16.0);
                 }
+            }
+            for(int i=0;i<5;i++){
+                landmarks[i].x =0;
+                landmarks[i].y =0;
             }
         }
 
@@ -486,73 +509,102 @@ class cameraHandling{
     }
 
     void extractor(){
-        int right =840;
-        int left =440;
-        int top =160;
-        int bottom =560;
-        int darkestAtmleft = 255;
-        int darkestAtmright = 255;
+
+        int darkestEyeleft = 40000;
+        int darkestEyeright = 40000;
         int offset =0;
         int fini =0;
         int curBrightness =0;
         int midx = 640;
         int midy = 360;
-        int darkestMouthleft = 255;
-        int darkestMouthright = 255;
-        int noseDrake = 255;
+        int darkestMouthleft = 40000;
+        int darkestMouthright = 40000;
+        int noseDrake = 40000;
+        int n =0;
+        int facemidx = (landmarks[0].x+landmarks[1].x)/2;
+        int facemidy = (landmarks[0].y+landmarks[1].y)/2;
 
-        for(int y = top; y<bottom;y++){
-            offset= y * picWidth;
+        for(int y = top; y<bottom-4;y++){
             if (y<=midy){
-                    for(int x = left; x<midx; x++){
-                        fini = x+offset;
-                        curBrightness=frameBuffer[fini];
-                        if(curBrightness<darkestAtmleft){
-                            darkestAtmleft=curBrightness;
-                            landmarks[1].x = x;
-                            landmarks[1].y =y;//left eye
+                    for(int x = left+30; x<midx-10; x++){
+                        int areaSum =0;
+
+                        for(int cipars = 0; cipars<4;cipars++){
+                            for(int cits = 0; cits<4;cits++){
+                                n = (y+cipars)*picWidth+(x+cits);
+                                areaSum += frameBuffer[n];//eyes left
+                            }
+                        }
+                        if(areaSum<darkestEyeleft && areaSum<5000){
+                            darkestEyeleft = areaSum;
+                            landmarks[1].x = x+2;
+                            landmarks[1].y =y+2;
                         }
                     }
-                    for(int x = midx; x<right; x++){
-                        fini = x+offset;
-                        curBrightness=frameBuffer[fini];
-                        if(curBrightness<darkestAtmright){
-                            darkestAtmright=curBrightness;
-                            landmarks[0].x = x;
-                            landmarks[0].y =y;//right eye
+                    for(int x = midx+10; x<right-30; x++){
+                        int areaSum =0;
+
+                        for(int cipars = 0; cipars<4;cipars++){
+                            for(int cits = 0; cits<4;cits++){//eyes right
+                                n = (y+cipars)*picWidth+(x+cits);
+                                areaSum += frameBuffer[n];
+                            }
                         }
-                    }
+                        if(areaSum<darkestEyeright && areaSum<5000){
+                            darkestEyeright = areaSum;
+                            landmarks[0].x = x+2;
+                            landmarks[0].y =y+2;
+                        }
                 } 
-            if (y>=midy){
-                for(int x = left; x<midx; x++){
-                    fini = x+offset;
-                    curBrightness=frameBuffer[fini];
-                    if(curBrightness<darkestMouthleft){
-                        darkestMouthleft=curBrightness;
-                        landmarks[3].x = x; //mouth left
-                        landmarks[3].y =y;
-                    }
+            } if (y>=midy+40 && y<midy+120){
+                for(int x = midx-100; x<midx-40; x++){
+                        int areaSum =0;
+
+                        for(int cipars = 0; cipars<4;cipars++){
+                            for(int cits = 0; cits<4;cits++){
+                                n = (y+cipars)*picWidth+(x+cits);//mouth left
+                                areaSum += frameBuffer[n];
+                            }
+                        }
+                        if(areaSum<darkestMouthleft && areaSum<5000){
+                            darkestMouthleft = areaSum;
+                            landmarks[3].x = x+2;
+                            landmarks[3].y =y+2;
+                        }
                 }
-                for(int x = midx; x<right; x++){
-                    fini = x+offset;
-                    curBrightness=frameBuffer[fini];
-                    if(curBrightness<darkestMouthright){
-                        darkestMouthright=curBrightness;
-                        landmarks[2].x = x; //mouth right
-                        landmarks[2].y =y;
-                    }
+                for(int x = midx+40; x<midx+100; x++){
+                        int areaSum =0;
+
+                        for(int cipars = 0; cipars<4;cipars++){
+                            for(int cits = 0; cits<4;cits++){
+                                n = (y+cipars)*picWidth+(x+cits);
+                                areaSum += frameBuffer[n];
+                            }
+                        }
+                        if(areaSum<darkestMouthright && areaSum<5000){
+                            darkestMouthright = areaSum;//mouth right
+                            landmarks[2].x = x+2;
+                            landmarks[2].y =y+2;
+                        }
                 }
             }
         }
-        for(int y = midy - 20;y<midy+20;y++){
-            offset= y * picWidth;
-            for(int x = midx-20;x<midx+20;x++){
-                fini = x+offset;
-                curBrightness=frameBuffer[fini];
-                if(curBrightness<noseDrake){
-                    noseDrake=curBrightness;
-                    landmarks[4].x = x; //nose
-                    landmarks[4].y =y;
+
+
+        for(int y = midy+35;y<midy+65;y++){
+            for(int x = midx-5;x<midx+5;x++){
+                int areaSum =0;
+
+                for(int cipars = 0; cipars<4;cipars++){
+                    for(int cits = 0; cits<4;cits++){
+                        n = (y+cipars)*picWidth+(x+cits);
+                        areaSum += frameBuffer[n];
+                    }
+                }
+                if(areaSum<noseDrake && areaSum<5000){
+                    noseDrake = areaSum;//nose
+                    landmarks[4].x = x+2;
+                    landmarks[4].y =y+2;
                 }
             }
         }
@@ -562,6 +614,8 @@ class cameraHandling{
     }
 
     int emotionDetector(){
+        emotionID = 0;
+        bool happy = false;
         double edx = landmarks[1].x-landmarks[0].x;
         double edy = landmarks[1].y-landmarks[0].y;
         double ed = (edx*edx)+(edy*edy);
@@ -573,6 +627,22 @@ class cameraHandling{
         double mouthWidth = sqrt(mw);
         double smileScore = mouthWidth/eyeDistance;
         cout<< " SMILE SCORE "<<smileScore<<endl;
+
+        if(framecount<100){
+            baseline += smileScore;
+            framecount++;
+        } else{
+            avg = baseline/100;
+        }
+
+        if(smileScore>avg*1.15){
+            happy = true;
+        }
+
+        if(happy){
+            emotionID =1;
+        }
+
         return 0;
     }
 
@@ -639,19 +709,38 @@ class cameraHandling{
     }
 
     void updateScreen(){
-        SDL_Rect leftRect = {0, 0, 1280, 720};
+        SDL_Rect leftRect = {0, 0, 1067, 600};
+        SDL_Rect RightRect = {1067, 0, 1067, 600};
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+        SDL_RenderClear(renderer);
+        SDL_Rect roi = {(left * 1067) / 1280, (top * 600) / 720, ((right - left) * 1067) / 1280, ((bottom - top) * 600) / 720};
         for(int i =0; i<921600;i++){
             unsigned char gr = frameBuffer[i];
             rgbaBuffer[i*4+0] = gr;
             rgbaBuffer[i*4+1] = gr;
             rgbaBuffer[i*4+2] = gr;
             rgbaBuffer[i*4+3] = 255;
-
         }
         SDL_UpdateTexture(texture, NULL, rgbaBuffer.data(), 1280*4);
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, &leftRect);
+        SDL_SetRenderDrawColor(renderer, 255,255,255,255);
+        for(int j =0;j<5;j++){
+            int x = (landmarks[j].x*1067/1280);
+            int y = (landmarks[j].y*600/720);
+            SDL_Rect dot = {x-2,y-2,4,4};
+            SDL_RenderFillRect(renderer, &dot);
+        }
+        SDL_RenderDrawRect(renderer, &roi);
+
+        if(emotionID == 1){
+            SDL_RenderCopy(renderer, happy, NULL, &RightRect);
+        }
+
         SDL_RenderPresent(renderer);
+
+
     }
 
     void resetter(){
