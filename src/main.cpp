@@ -47,7 +47,7 @@ class cameraHandling{
         int blockCoef [64];
         int precDC[3 ];
         double pixelRes[64];
-        bool running = true;
+        bool running;
         vector<unsigned char> frameBuffer;
         int y_h;
         int y_v; 
@@ -55,12 +55,15 @@ class cameraHandling{
         SDL_Window* window;
         SDL_Renderer* renderer;
         SDL_Texture* texture;
+        bool done = false;
+        double cosTable[8][8];
 
         struct point{ //so location will be treated as a single object not seperate numbers
             int x;
             int y;
         };
         point landmarks[5];
+        vector<unsigned char> rgbaBuffer;
 
     public:
         cameraHandling(){
@@ -69,6 +72,8 @@ class cameraHandling{
             bitsLeft =0;
             bitCurrent =0;
             frameBuffer.resize(921600);
+            rgbaBuffer.resize(921600*4);
+            running = true;
             y_h =1;
             y_v =1;
             if(SDL_Init(SDL_INIT_VIDEO)<0){
@@ -76,7 +81,12 @@ class cameraHandling{
             }
             window = SDL_CreateWindow("Mimic", 100, 100, 2560, 720, SDL_WINDOW_SHOWN);
             renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
+            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, 1280, 720);
+            for(int i =0;i<8;i++){
+                for(int j =0; j<8;j++){
+                    cosTable[i][j] = cos(((2*i+1)*j*M_PI)/16.0);
+                }
+            }
         }
 
 
@@ -304,7 +314,7 @@ class cameraHandling{
                         precDC[2] = 0;
                         continue;
                     }if(*tracer==0xD9){
-                        running = false;
+                        // running = false;
                         return 0;
                     }
                 }
@@ -438,21 +448,22 @@ class cameraHandling{
             spatialGrid[j] = blockCoef[j]*capTable[qIndex][j];
         }
 
-        double cu=0.0;
-        double cv=0.0;
+
         double cosValn =0, cosValk =0;
         for(int n=0;n<8;n++){
             for(int k=0;k<8;k++){
                     double sum =0.0;
                     for(int u=0;u<8;u++){
-                        if(u==0) cu=1/sqrt(2);
-                        if(u>0) cu=1.0;
-                        cosValn = cos( ( (2 * n + 1) * u * M_PI ) / 16.0 );
+                        double cu = 1.0;
+                        if(u==0){
+                            cu = 0.70710678118;
+                        } 
                         for(int v=0;v<8;v++){
-                            if(v==0) cv=1/sqrt(2);
-                            if(v>0) cv=1.0;
-                            cosValk = cos( ( (2 * k + 1) * v * M_PI ) / 16.0 );
-                            sum += cu*cv*cosValk*cosValn*spatialGrid[u * 8 + v];
+                            double cv =1.0;
+                            if(v==0){
+                                cv = 0.70710678118;
+                            } 
+                            sum += cu*cv*spatialGrid[u * 8 + v]*cosTable[n][u]*cosTable[k][v];
                     }
                 }
                 double temp = (sum/4.0)+128.5;
@@ -474,7 +485,7 @@ class cameraHandling{
         return 0;
     }
 
-    int extractor(){
+    void extractor(){
         int right =840;
         int left =440;
         int top =160;
@@ -547,7 +558,7 @@ class cameraHandling{
         }
 
         cout << "right Eye: " << landmarks[0].x << " left Eye: " << landmarks[1].x << " right mouth corner: " << landmarks[2].x << " left mouth corner: " << landmarks[3].x << " nose: " << landmarks[4].x <<endl;        
-        return 0;
+
     }
 
     int emotionDetector(){
@@ -577,6 +588,8 @@ class cameraHandling{
 
         for(int i = 0;i<picHeight/mcuH;i++){
             for(int j = 0;j<picWidth/mcuW;j++){
+                if(!running || done) return 0;
+                checkEvents();
                 for(int ij=0;ij<y_v;ij++){ 
                 for(int ii=0;ii<y_h;ii++){ 
                     decoder(0,2,0); 
@@ -611,16 +624,47 @@ class cameraHandling{
         // testFile<<"P5\n" << picWidth << " " << picHeight << "\n255\n";
         // testFile.write((char*)frameBuffer.data(), frameBuffer.size());
         // testFile.close();
+        updateScreen();
         return 0;
     }
 
-    int resetter(){
+    void checkEvents(){
+        SDL_Event mail;
+        while (SDL_PollEvent(&mail)){
+            if(mail.type == SDL_QUIT){
+                done = true;
+                running = false;
+            }
+        }
+    }
+
+    void updateScreen(){
+        SDL_Rect leftRect = {0, 0, 1280, 720};
+        for(int i =0; i<921600;i++){
+            unsigned char gr = frameBuffer[i];
+            rgbaBuffer[i*4+0] = gr;
+            rgbaBuffer[i*4+1] = gr;
+            rgbaBuffer[i*4+2] = gr;
+            rgbaBuffer[i*4+3] = 255;
+
+        }
+        SDL_UpdateTexture(texture, NULL, rgbaBuffer.data(), 1280*4);
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, NULL, &leftRect);
+        SDL_RenderPresent(renderer);
+    }
+
+    void resetter(){
+        running = !done;
         bitsLeft =0;
         bitCurrent =0;
         precDC[0] =0;
         precDC[1] =0;
         precDC[2] =0;
-        return 0;
+    }
+
+    bool isRunning(){
+        return !done;
     }
 
     int endStream(){
@@ -628,6 +672,10 @@ class cameraHandling{
             perror("Could not end streaming, VIDIOC_STREAMOFF");
             return 1;
         }
+        SDL_DestroyTexture(texture);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
         close(fd);
         return 0;
     }
@@ -645,8 +693,8 @@ int main (){
     cam.bufferPrep();
     cam.bufferFrame();
     cam.warmUp();
-    while(running){
-        cam.captureLoop();
+    while(cam.isRunning()){
+        if(cam.captureLoop()!=0) break;
         cam.extractor();
         cam.emotionDetector();
     }
